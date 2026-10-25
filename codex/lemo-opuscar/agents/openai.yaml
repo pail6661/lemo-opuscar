@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lemo-Opuscar · Codex"
+  short_description: "用 59 种代码影片风格制作视频，并创建和复用自己的风格"
+  default_prompt: "使用 $lemo-opuscar 帮我选风格，并制作一支含源码和验收结果的短片。"

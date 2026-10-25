@@ -1,11 +1,12 @@
 """Kokoro offline voice: python core/tts/tts.py lines.json out_dir
 lines.json = [{"id":..., "text":..., "voice":"bm_george", "speed":0.92, "lang":"en-us"}, ...]
   Defaults: voice=af_bella, speed=0.92, lang=en-us. For Chinese use "lang":"cmn" with a zf_*/zm_* voice (works offline, plain timbre).
+  Chinese uses Misaki's v1.0 Mandarin phonemes; English and other languages retain the espeak-ng frontend.
 Writes out_dir/<id>.wav (24 kHz, leading/trailing silence trimmed) and out_dir/dur.json.
 Model: kokoro-v1.0.onnx / voices-v1.0.bin in this folder; download with sh tools/fetch.sh voice (about 350 MB).
-Path limit: the data folder of espeak-ng (which Kokoro uses to turn text into phonemes) must have a real path, after symlinks, shorter than
-         160 bytes (a CJK character counts 3), or it is not found and the error names a path on someone else's machine (the one espeak-ng was
-         built on). A library under a short path such as ~/lemo-opuscar is fine; this script checks before it starts and explains.
+Path limit: espeak-ng's data path must be shorter than 160 bytes. On Windows its DLL also needs an ASCII data path; when necessary,
+         this script makes a temporary data copy (not a model copy), preferably under LEMO_TEST_TEMP, and cleans it up at process exit.
+         On other platforms, a library under a short path such as ~/lemo-opuscar is fine; this script checks before it starts and explains.
 More natural Chinese, Japanese and other voices: core/tts/tts_zh.py (Microsoft edge-tts, online), same interface and output layout.
 """
 import sys, json, os, re
@@ -31,7 +32,9 @@ try:
     espeak_dir = os.path.realpath(espeakng_loader.get_data_path())
 except Exception:
     espeak_dir = None   # not installed via espeakng_loader (e.g. the system espeak-ng): don't check, let Kokoro report its own error
-if espeak_dir and len(espeak_dir.encode('utf-8')) >= ESPEAK_LIMIT:
+windows_data_copy = (sys.platform == 'win32' and espeak_dir and
+                     (not espeak_dir.isascii() or len(espeak_dir.encode('utf-8')) >= ESPEAK_LIMIT))
+if espeak_dir and len(espeak_dir.encode('utf-8')) >= ESPEAK_LIMIT and not windows_data_copy:
     sys.exit(f"tts.py: this library sits under a folder path that is too long for the offline voice engine (espeak-ng).\n"
              f"  its data folder is {len(espeak_dir.encode('utf-8'))} bytes long (a Chinese character counts as 3), the limit is {ESPEAK_LIMIT - 1}:\n"
              f"    {espeak_dir}\n"
@@ -39,15 +42,60 @@ if espeak_dir and len(espeak_dir.encode('utf-8')) >= ESPEAK_LIMIT:
              f"  `sh plugin/skills/lemo-opuscar/scripts/setup.sh deps` there (a moved .venv does not work). No need to move anything for tts_zh.py.")
 try: from kokoro_onnx import Kokoro
 except ImportError: sys.exit('tts.py: kokoro-onnx is missing: install the voice tier: sh plugin/skills/lemo-opuscar/scripts/setup.sh deps voice')
-k = Kokoro(model, voices)
+chinese_g2p = None
+if any(L.get('lang', 'en-us').lower() == 'cmn' for L in lines):
+    try: from misaki.zh import ZHG2P
+    except ImportError:
+        sys.exit('tts.py: Mandarin needs misaki[zh] for the Kokoro v1.0 pronunciation frontend. '
+                 'Install the voice requirements: python -m pip install -r requirements-voice.txt')
+    if os.environ.get('LEMO_TEST_TEMP'):
+        import jieba
+        jieba.dt.tmp_dir = os.path.realpath(os.environ['LEMO_TEST_TEMP'])
+        os.makedirs(jieba.dt.tmp_dir, exist_ok=True)
+    # The installed model is Kokoro-82M v1.0. Its official pipeline uses
+    # Misaki's legacy Mandarin inventory; version="1.1" is for another model.
+    chinese_g2p = ZHG2P(version=None)
+espeak_config = None
+if windows_data_copy:
+    # espeak-ng's Windows DLL uses narrow filesystem paths. Even when phontab
+    # exists, a non-ASCII path makes it fall back to its build-machine path.
+    # Kokoro's supported config keeps this workaround out of package internals.
+    import atexit, shutil, tempfile
+    from kokoro_onnx.config import EspeakConfig
+    temporary_root = os.path.realpath(os.environ.get('LEMO_TEST_TEMP') or tempfile.gettempdir())
+    os.makedirs(temporary_root, exist_ok=True)
+    espeak_temporary = tempfile.mkdtemp(prefix='lemo-espeak-', dir=temporary_root)
+    def cleanup_espeak_data():
+        # Resolve and verify the exact target immediately before recursive
+        # cleanup. A locked native file must not hide the synthesis result.
+        target, parent = os.path.realpath(espeak_temporary), os.path.realpath(temporary_root)
+        try:
+            if target == parent or os.path.commonpath((target, parent)) != parent:
+                print(f'tts.py: skipped temporary cleanup outside {parent}: {target}', file=sys.stderr)
+                return
+            shutil.rmtree(target)
+        except (OSError, ValueError) as error:
+            print(f'tts.py: could not clean temporary voice data: {error}', file=sys.stderr)
+    atexit.register(cleanup_espeak_data)
+    espeak_ascii = os.path.abspath(os.path.join(espeak_temporary, 'espeak-ng-data'))
+    if not espeak_ascii.isascii() or len(espeak_ascii.encode('utf-8')) >= ESPEAK_LIMIT:
+        sys.exit('tts.py: Windows offline voice needs a short ASCII temporary path. '
+                 'Set LEMO_TEST_TEMP to an ASCII folder such as F:\\tools\\temp, then retry.')
+    if not os.path.isfile(os.path.join(espeak_dir, 'phontab')):
+        sys.exit(f'tts.py: espeak-ng data is incomplete (phontab missing): {espeak_dir}')
+    shutil.copytree(espeak_dir, espeak_ascii)
+    espeak_config = EspeakConfig(lib_path=espeakng_loader.get_library_path(), data_path=espeak_ascii)
+k = Kokoro(model, voices, espeak_config=espeak_config) if espeak_config else Kokoro(model, voices)
 avail = k.get_voices()
 for L in lines:
-    v = L.get('voice') or DEFAULT_VOICE.get(L.get('lang', 'en-us'), 'af_bella')
+    v = L.get('voice') or DEFAULT_VOICE.get(L.get('lang', 'en-us').lower(), 'af_bella')
     if v not in avail: sys.exit(f"tts.py: unknown voice '{v}' in line '{L['id']}'.\n  available: {', '.join(avail)}")
 os.makedirs(out, exist_ok=True); dur = {}
 for L in lines:
-    lang = L.get('lang', 'en-us')
-    a, sr = k.create(L['text'], voice=L.get('voice') or DEFAULT_VOICE.get(lang, 'af_bella'), speed=L.get('speed', .92), lang=lang)
+    lang = L.get('lang', 'en-us').lower()
+    is_phonemes = lang == 'cmn'
+    text = chinese_g2p(L['text'])[0] if is_phonemes else L['text']
+    a, sr = k.create(text, voice=L.get('voice') or DEFAULT_VOICE.get(lang, 'af_bella'), speed=L.get('speed', .92), lang=lang, is_phonemes=is_phonemes)
     nz = np.where(np.abs(a) > (np.abs(a).max() if len(a) else 0) * .02)[0]
     if len(nz): a = a[max(0, nz[0] - int(.03 * sr)): nz[-1] + int(.08 * sr)]   # trim leading/trailing silence; if the whole clip is nearly silent, keep it as is
     else: print('warning: line', L['id'], 'is silent', file=sys.stderr)

@@ -1,3 +1,5 @@
+> **Codex / ChatGPT fork:** use your existing Codex login instead of Claude Code. Includes native Windows setup, a Codex skill and a portable audio/video master. Start with [CODEX.md](CODEX.md). The original style library and author credits below are preserved. No Claude account or video-generation API key is required for this route.
+
 <div align="center">
 
 # Lemo-Opuscar

@@ -1,6 +1,7 @@
 # Voice tier: core/tts/tts.py (Kokoro, offline), tts_zh.py (edge-tts, online), asr_check.py (Whisper).
-# Install: sh plugin/skills/lemo-opuscar/scripts/setup.sh deps voice   (kokoro-onnx needs Python 3.11-3.13)
+# Install: sh plugin/skills/lemo-opuscar/scripts/setup.sh deps voice   (voice tier needs Python 3.11-3.12)
 kokoro-onnx
+misaki[zh]==0.9.4   # Mandarin G2P matching the installed Kokoro v1.0 model; no torch/spacy extra
 edge-tts
 faster-whisper
 av<19   # av 19 dropped an option faster-whisper 1.2 passes when it opens a file (TypeError: metadata_errors)

@@ -1,5 +1,9 @@
 # Lemo-Opuscar: instructions for agents
 
+## Codex / ChatGPT adaptation in this fork
+
+When Codex is producing the film, read [CODEX.md](CODEX.md) first. Use the existing checkout and the native `tools/setup-codex.ps1` / `tools/lemo.ps1` entrypoints; do not launch Claude, require its account, run its plugin installer, or auto-reset this fork to upstream. Codex supplies directing and code-writing with the model the user selected. Keep the style, original-treatment, sound, review and delivery requirements below. Use Codex's available conversation/input tools instead of Claude-specific tool names, skipping questions already answered. On Windows, deliver `build.ps1` in place of `build.sh` and use `core/render/mux.py`; Bash and WSL are not required for this adaptation's shared tools. Style-specific dependencies still need checking.
+
 This repository is a library of film styles. Each style has a `styles/<slug>/STYLE.md` (what the style is) and one demo film made entirely in code (`DEMO.md` and `demo/`). People pick a style and ask for a film about **their own** topic. Your job is to direct and produce that film.
 
 | The request | Go to |

@@ -1,3 +1,5 @@
+> **本 fork 已增加 Codex / ChatGPT 入口**：由 Codex 接手导演、写代码与制作，使用你现有的 Codex 登录。提供 Windows 原生安装、Codex 技能与跨平台音画合成工具，先看 [CODEX.md](CODEX.md)。下方保留原作者的风格库说明和署名。此入口无需 Claude 账号，也无需视频生成 API Key。
+
 <div align="center">
 
 # Lemo-Opuscar
